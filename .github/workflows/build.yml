@@ -45,13 +45,14 @@ jobs:
       - name: Add Android
         run: cap add android
         
-      - name: Create icons
+      - name: Fix Java version in build.gradle
         run: |
-          mkdir -p android/app/src/main/res/mipmap-mdpi
-          mkdir -p android/app/src/main/res/mipmap-hdpi
-          mkdir -p android/app/src/main/res/mipmap-xhdpi
-          mkdir -p android/app/src/main/res/mipmap-xxhdpi
-          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+          cd android
+          # Понижаем Java версию в build.gradle
+          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_21/JavaVersion.VERSION_17/g' {} \;
+          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_20/JavaVersion.VERSION_17/g' {} \;
+          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_19/JavaVersion.VERSION_17/g' {} \;
+          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_18/JavaVersion.VERSION_17/g' {} \;
           
       - name: Sync Capacitor
         run: cap sync
