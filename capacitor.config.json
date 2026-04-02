@@ -1,0 +1,9 @@
+{
+  "appId": "com.cc.messenger",
+  "appName": "c.c",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
