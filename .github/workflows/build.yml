@@ -45,18 +45,12 @@ jobs:
       - name: Add Android
         run: cap add android
         
-      - name: Fix Java version to 17
+      - name: Restore pre-created build.gradle
         run: |
-          cd android
-          # Исправляем sourceCompatibility в app/build.gradle
-          sed -i 's/sourceCompatibility = JavaVersion.VERSION_1_8/sourceCompatibility = JavaVersion.VERSION_17/g' app/build.gradle
-          sed -i 's/targetCompatibility = JavaVersion.VERSION_1_8/targetCompatibility = JavaVersion.VERSION_17/g' app/build.gradle
-          sed -i 's/sourceCompatibility JavaVersion.VERSION_1_8/sourceCompatibility JavaVersion.VERSION_17/g' app/build.gradle
-          sed -i 's/targetCompatibility JavaVersion.VERSION_1_8/targetCompatibility JavaVersion.VERSION_17/g' app/build.gradle
+          cp android/app/build.gradle android/app/build.gradle.bak 2>/dev/null || true
+          cp -r ../android/app/build.gradle android/app/build.gradle 2>/dev/null || true
+          cp android/gradle.properties android/ 2>/dev/null || true
           
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-        
       - name: Build APK
         run: |
           cd android
@@ -82,20 +76,12 @@ jobs:
       - name: Clone web app
         run: git clone https://github.com/Hinderchik/messenger-app.git webapp
         
-      - name: Create icon.ico
-        run: |
-          curl -o icon.png https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png 2>$null
-          if (Test-Path icon.png) {
-            magick icon.png -define icon:auto-resize=256,128,96,64,48,32,16 icon.ico 2>$null
-          }
-          
       - name: Create Electron app
         run: |
           mkdir electron-app
           cd electron-app
           npm init -y
           npm install electron electron-builder
-          if (Test-Path ../icon.ico) { Copy-Item ../icon.ico . }
           
           $mainJs = @"
           const { app, BrowserWindow } = require('electron');
@@ -104,7 +90,6 @@ jobs:
               mainWindow = new BrowserWindow({
                   width: 1200,
                   height: 800,
-                  icon: __dirname + '/icon.ico',
                   webPreferences: {
                       nodeIntegration: false,
                       contextIsolation: true
@@ -136,8 +121,7 @@ jobs:
                 "output": "dist"
               },
               "win": {
-                "target": "nsis",
-                "icon": "icon.ico"
+                "target": "nsis"
               }
             }
           }
