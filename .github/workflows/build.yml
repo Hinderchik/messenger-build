@@ -1,321 +1,202 @@
-name: Build Messenger APK & EXE
+name: Build Messenger Apps
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'  # Раз в неделю
 
 jobs:
-  build-apk:
+  # Сборка APK через PWABuilder
+  build-android:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout messenger-build
-        uses: actions/checkout@v4
-        with:
-          path: messenger-build
-          
-      - name: Checkout messenger-app
-        uses: actions/checkout@v4
-        with:
-          repository: Hinderchik/messenger-app
-          path: messenger-app
-          
+      - uses: actions/checkout@v4
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
-        
-      - name: Copy icon from messenger-build
+      - name: Clone web app
         run: |
-          cd messenger-app
-          if [ -f "../messenger-build/icon.png" ]; then
-            cp ../messenger-build/icon.png icon.png
-            echo "✅ Icon copied"
-          else
-            echo "⚠️ No icon found"
-          fi
+          git clone https://github.com/Hinderchik/messenger-app.git webapp
+          cp -r webapp/* .
           
-      - name: Create manifest.json
+      - name: Create manifest.json for PWA
         run: |
-          cd messenger-app
           cat > manifest.json << 'EOF'
           {
-            "name": "c.c.",
-            "short_name": "c.c.",
-            "start_url": "/",
+            "name": "c.c Messenger",
+            "short_name": "c.c",
+            "start_url": "/chat.html",
             "display": "standalone",
-            "background_color": "#4F46E5",
-            "theme_color": "#4F46E5",
+            "theme_color": "#17212b",
+            "background_color": "#17212b",
             "orientation": "portrait",
             "icons": [
               {
-                "src": "icon.png",
+                "src": "https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png",
                 "sizes": "512x512",
                 "type": "image/png",
                 "purpose": "any maskable"
               }
-            ],
-            "categories": ["communication"],
-            "lang": "ru",
-            "scope": "/",
-            "description": "c.c. Messenger"
+            ]
           }
           EOF
           
-      - name: Build APK with Bubblewrap (non-interactive)
+      - name: Install PWABuilder
+        run: npm install -g @pwabuilder/cli
+        
+      - name: Build APK
         run: |
-          cd messenger-app
-          
-          # Автоматически отвечаем Yes на все вопросы про JDK и Android SDK
-          printf "y\ny\n" | npx @bubblewrap/cli init --manifest manifest.json --directory twa || true
-          
-          cd twa
-          
-          # Создаем конфиг вручную
-          cat > twa-manifest.json << 'EOF'
-          {
-            "packageId": "com.cc.messenger",
-            "host": "hindershik.github.io",
-            "name": "c.c.",
-            "launcherName": "c.c.",
-            "display": "standalone",
-            "themeColor": "#4F46E5",
-            "backgroundColor": "#4F46E5",
-            "startUrl": "/",
-            "iconUrl": "https://hindershik.github.io/messenger-app/icon.png",
-            "maskableIconUrl": "https://hindershik.github.io/messenger-app/icon.png",
-            "splashScreenFadeOutDuration": 300,
-            "enableNotifications": true,
-            "signingKey": {
-              "path": "../android.keystore",
-              "alias": "android"
-            }
-          }
-          EOF
-          
-          # Генерируем ключ (пароль 123456)
-          printf "123456\n123456\n\n\n\n\n\n\n\n\n" | npx @bubblewrap/cli keygen --out ../android.keystore
-          
-          # Собираем APK
-          npx @bubblewrap/cli build
-          
-          # Копируем результат
-          find . -name "*.apk" -exec cp {} ../../c.c.apk \;
+          pwabuilder package --manifest manifest.json --platform android
+          mkdir -p apk_output
+          find . -name "*.apk" -exec cp {} apk_output/ \;
           
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: c.c.apk
-          path: c.c.apk
-          if-no-files-found: warn
-          
-      - name: Debug if APK not found
-        if: failure()
-        run: |
-          echo "APK not found, debugging..."
-          ls -la messenger-app/
-          ls -la messenger-app/twa/ || echo "No twa directory"
-          find messenger-app -name "*.apk" 2>/dev/null || echo "No APK files"
+          name: c.c-android
+          path: apk_output/*.apk
 
-  build-exe:
+  # Сборка EXE через Electron
+  build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout messenger-build
-        uses: actions/checkout@v4
-        with:
-          path: messenger-build
-          
-      - name: Checkout messenger-app
-        uses: actions/checkout@v4
-        with:
-          repository: Hinderchik/messenger-app
-          path: messenger-app
-          
+      - uses: actions/checkout@v4
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           
-      - name: Build EXE with Electron
-        shell: bash
+      - name: Clone web app
+        run: git clone https://github.com/Hinderchik/messenger-app.git webapp
+        
+      - name: Create icon.ico
+        run: |
+          curl -o icon.png https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png
+          if (Test-Path icon.png) {
+            magick icon.png -define icon:auto-resize=256,128,96,64,48,32,16 icon.ico
+          }
+          
+      - name: Create Electron app
         run: |
           mkdir electron-app
           cd electron-app
+          npm init -y
+          npm install electron electron-builder
           
-          # Копируем иконку
-          if [ -f "../messenger-build/icon.png" ]; then
-            cp "../messenger-build/icon.png" icon.png
-            echo "✅ Icon copied"
-          else
-            echo "⚠️ No icon found"
-          fi
+          if (Test-Path ../icon.ico) { Copy-Item ../icon.ico . }
           
-          # Конвертируем PNG в ICO
-          if [ -f "icon.png" ]; then
-            npm install -g png-to-ico
-            png-to-ico icon.png > icon.ico
-            echo "✅ ICO created"
-          fi
-          
-          # Создаем package.json
-          cat > package.json << 'EOF'
-          {
-            "name": "cc-messenger",
-            "version": "1.0.0",
-            "description": "c.c. Messenger",
-            "author": "XunKal1",
-            "main": "main.js",
-            "scripts": {
-              "dist": "electron-builder"
-            },
-            "build": {
-              "appId": "com.cc.messenger",
-              "productName": "c.c.",
-              "directories": {
-                "output": "dist"
-              },
-              "files": [
-                "**/*"
-              ],
-              "win": {
-                "target": "nsis",
-                "icon": "icon.ico"
-              },
-              "nsis": {
-                "oneClick": false,
-                "perMachine": true,
-                "allowToChangeInstallationDirectory": true,
-                "createDesktopShortcut": true,
-                "createStartMenuShortcut": true
-              }
-            },
-            "devDependencies": {
-              "electron": "^28.0.0",
-              "electron-builder": "^24.6.4"
-            }
-          }
-          EOF
-          
-          # Создаем main.js
-          cat > main.js << 'EOF'
-          const { app, BrowserWindow } = require('electron');
-          const path = require('path');
+          @"
+          const { app, BrowserWindow, Menu } = require('electron');
+          let mainWindow;
           
           function createWindow() {
-            const win = new BrowserWindow({
-              width: 1200,
-              height: 800,
-              icon: path.join(__dirname, 'icon.ico'),
-              webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true
-              },
-              title: 'c.c.'
-            });
-            
-            win.loadURL('https://hindershik.github.io/messenger-app');
+              mainWindow = new BrowserWindow({
+                  width: 1200,
+                  height: 800,
+                  minWidth: 800,
+                  minHeight: 600,
+                  icon: __dirname + '/icon.ico',
+                  webPreferences: {
+                      nodeIntegration: false,
+                      contextIsolation: true
+                  }
+              });
+              
+              mainWindow.loadURL('https://messenger-app-roan-two.vercel.app');
+              
+              // Кастомное меню
+              const menu = Menu.buildFromTemplate([
+                  { label: 'c.c', submenu: [{ label: 'Выход', role: 'quit' }] },
+                  { label: 'Правка', submenu: [{ label: 'Копировать', role: 'copy' }, { label: 'Вставить', role: 'paste' }] },
+                  { label: 'Вид', submenu: [{ label: 'Перезагрузить', role: 'reload' }, { label: 'Полный экран', role: 'togglefullscreen' }] }
+              ]);
+              Menu.setApplicationMenu(menu);
+              
+              mainWindow.on('closed', () => { mainWindow = null; });
           }
           
           app.whenReady().then(createWindow);
+          app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+          "@ | Out-File -FilePath main.js -Encoding UTF8
           
-          app.on('window-all-closed', () => {
-            if (process.platform !== 'darwin') {
-              app.quit();
+          @"
+          {
+            "name": "c.c",
+            "version": "1.0.0",
+            "main": "main.js",
+            "scripts": {
+              "start": "electron .",
+              "build": "electron-builder"
+            },
+            "build": {
+              "appId": "com.cc.messenger",
+              "productName": "c.c",
+              "directories": { "output": "dist" },
+              "win": { "target": "nsis", "icon": "icon.ico" },
+              "nsis": {
+                "oneClick": false,
+                "allowToChangeInstallationDirectory": true,
+                "createDesktopShortcut": true
+              }
             }
-          });
-          EOF
+          }
+          "@ | Out-File -FilePath package.json -Encoding UTF8
           
-          # Устанавливаем зависимости
-          npm install
-          
-          # Собираем EXE
-          npm run dist
-          
-          # Копируем EXE
-          cd dist
-          if [ -f "c.c Setup 1.0.0.exe" ]; then
-            cp "c.c Setup 1.0.0.exe" ../../c.c.exe
-            echo "✅ EXE created: c.c Setup 1.0.0.exe"
-          elif [ -f "c.c. Setup 1.0.0.exe" ]; then
-            cp "c.c. Setup 1.0.0.exe" ../../c.c.exe
-            echo "✅ EXE created: c.c. Setup 1.0.0.exe"
-          else
-            # Поиск любого exe
-            exe_file=$(find . -name "*.exe" -type f | head -1)
-            if [ -n "$exe_file" ]; then
-              cp "$exe_file" ../../c.c.exe
-              echo "✅ EXE created: $exe_file"
-            else
-              echo "❌ No EXE found!"
-              ls -la
-              exit 1
-            fi
-          fi
-          
-          cd ../..
-          if [ -f "c.c.exe" ]; then
-            echo "✅ EXE successfully created:"
-            ls -lh c.c.exe
-          else
-            echo "❌ Failed to create EXE"
-            exit 1
-          fi
+      - name: Build EXE
+        run: |
+          cd electron-app
+          npm run build
           
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: c.c.exe
-          path: c.c.exe
+          name: c.c-windows
+          path: electron-app/dist/*.exe
 
+  # Создание релиза
   create-release:
-    needs: [build-apk, build-exe]
+    needs: [build-android, build-windows]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           
-      - name: List artifacts for debugging
+      - name: List files
         run: |
-          echo "=== Artifacts downloaded ==="
           ls -la artifacts/
-          if [ -d "artifacts/c.c.apk" ]; then
-            echo "=== APK file ==="
-            ls -la artifacts/c.c.apk/
-          fi
-          if [ -d "artifacts/c.c.exe" ]; then
-            echo "=== EXE file ==="
-            ls -la artifacts/c.c.exe/
-          fi
+          ls -la artifacts/c.c-android/ || true
+          ls -la artifacts/c.c-windows/ || true
           
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "c.c. Messenger v1.0.${{ github.run_number }}"
+          name: c.c Messenger v1.0.${{ github.run_number }}
           body: |
-            ## Автоматическая сборка c.c. Messenger
+            ## c.c Messenger
             
-            ### Что нового:
-            - Сборка APK через Bubblewrap
-            - Сборка EXE через Electron
-            - Иконка из messenger-build
+            ### 📱 Android
+            - Скачай APK и установи на телефон
+            - Разреши установку из неизвестных источников
             
-            ### Установка:
-            - **Android**: Установите c.c.apk
-            - **Windows**: Запустите c.c.exe
+            ### 💻 Windows
+            - Скачай Setup.exe и установи
             
-            ### Автор: XunKal1
+            ### 🔧 Что нового
+            - Полноценный мессенджер
+            - Личные чаты
+            - Тёмная/светлая тема
+            - Адаптивный дизайн
           files: |
-            artifacts/c.c.apk/c.c.apk
-            artifacts/c.c.exe/c.c.exe
-          draft: false
-          prerelease: false
+            artifacts/c.c-android/*.apk
+            artifacts/c.c-windows/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
