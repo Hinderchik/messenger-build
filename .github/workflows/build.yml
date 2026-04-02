@@ -45,14 +45,21 @@ jobs:
       - name: Add Android
         run: cap add android
         
-      - name: Fix Java version in build.gradle
+      - name: Force Java 17 in gradle files
         run: |
           cd android
-          # Понижаем Java версию в build.gradle
-          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_21/JavaVersion.VERSION_17/g' {} \;
-          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_20/JavaVersion.VERSION_17/g' {} \;
-          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_19/JavaVersion.VERSION_17/g' {} \;
-          find . -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_18/JavaVersion.VERSION_17/g' {} \;
+          # Создаём gradle.properties с Java 17
+          echo "org.gradle.jvmargs=-Xmx2048m" >> gradle.properties
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          
+          # Исправляем sourceCompatibility в app/build.gradle
+          sed -i 's/sourceCompatibility = .*/sourceCompatibility = JavaVersion.VERSION_17/' app/build.gradle
+          sed -i 's/targetCompatibility = .*/targetCompatibility = JavaVersion.VERSION_17/' app/build.gradle
+          
+          # Добавляем Java 17 если нет
+          grep -q "sourceCompatibility" app/build.gradle || \
+            sed -i '/android {/a\\    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }' app/build.gradle
           
       - name: Sync Capacitor
         run: cap sync
