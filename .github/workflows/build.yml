@@ -1,4 +1,4 @@
-name: Build c.c APK and EXE
+name: Build c.c APK & EXE
 
 on:
   push:
@@ -16,53 +16,41 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        
-      - name: Clone web app
+      - name: Create manifest.json
         run: |
-          git clone https://github.com/Hinderchik/messenger-app.git webapp
-          mkdir -p www
-          cp -r webapp/* www/
+          cat > manifest.json << 'EOF'
+          {
+            "name": "c.c",
+            "short_name": "c.c",
+            "start_url": "https://messenger-e8ywossf0-hinderchiks-projects.vercel.app",
+            "display": "standalone",
+            "theme_color": "#667eea",
+            "background_color": "#ffffff",
+            "icons": [
+              {
+                "src": "https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+              }
+            ]
+          }
+          EOF
           
-      - name: Install Capacitor
-        run: |
-          npm install -g @capacitor/cli
-          npm install @capacitor/core @capacitor/android
-          
-      - name: Init Capacitor
-        run: cap init c.c com.cc.messenger --web-dir=www
+      - name: Install PWABuilder
+        run: npm install -g @pwabuilder/cli
         
-      - name: Remove old android
-        run: rm -rf android || true
-        
-      - name: Add Android
-        run: cap add android
-        
-      - name: Restore pre-created build.gradle
-        run: |
-          cp android/app/build.gradle android/app/build.gradle.bak 2>/dev/null || true
-          cp -r ../android/app/build.gradle android/app/build.gradle 2>/dev/null || true
-          cp android/gradle.properties android/ 2>/dev/null || true
-          
       - name: Build APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleRelease
-          
+        run: pwabuilder package --manifest manifest.json --platform android
+        
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: c.c-android
-          path: android/app/build/outputs/apk/release/*.apk
-
+          path: |
+            **/*.apk
+            !**/node_modules/**
+            
   build-windows:
     runs-on: windows-latest
     steps:
@@ -73,60 +61,52 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Clone web app
-        run: git clone https://github.com/Hinderchik/messenger-app.git webapp
-        
+      - name: Create icon.ico
+        run: |
+          curl -o icon.png https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png
+          if (Test-Path icon.png) {
+            magick icon.png -define icon:auto-resize=256,128,96,64,48,32,16 icon.ico
+          }
+          
       - name: Create Electron app
         run: |
           mkdir electron-app
           cd electron-app
           npm init -y
           npm install electron electron-builder
+          if (Test-Path ../icon.ico) { Copy-Item ../icon.ico . }
           
-          $mainJs = @"
+          @"
           const { app, BrowserWindow } = require('electron');
           let mainWindow;
           function createWindow() {
               mainWindow = new BrowserWindow({
                   width: 1200,
                   height: 800,
-                  webPreferences: {
-                      nodeIntegration: false,
-                      contextIsolation: true
-                  }
+                  icon: __dirname + '/icon.ico',
+                  webPreferences: { nodeIntegration: false, contextIsolation: true }
               });
               mainWindow.loadURL('https://messenger-e8ywossf0-hinderchiks-projects.vercel.app');
               mainWindow.on('closed', () => { mainWindow = null; });
           }
           app.whenReady().then(createWindow);
-          app.on('window-all-closed', () => {
-              if (process.platform !== 'darwin') app.quit();
-          });
-          "@
-          $mainJs | Out-File -FilePath main.js -Encoding UTF8
+          app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+          "@ | Out-File -FilePath main.js -Encoding UTF8
           
-          $packageJson = @"
+          @"
           {
             "name": "c.c",
             "version": "1.0.0",
             "main": "main.js",
-            "scripts": {
-              "start": "electron .",
-              "build": "electron-builder"
-            },
+            "scripts": { "start": "electron .", "build": "electron-builder" },
             "build": {
               "appId": "com.cc.messenger",
               "productName": "c.c",
-              "directories": {
-                "output": "dist"
-              },
-              "win": {
-                "target": "nsis"
-              }
+              "directories": { "output": "dist" },
+              "win": { "target": "nsis", "icon": "icon.ico" }
             }
           }
-          "@
-          $packageJson | Out-File -FilePath package.json -Encoding UTF8
+          "@ | Out-File -FilePath package.json -Encoding UTF8
           
       - name: Build EXE
         run: |
@@ -142,7 +122,7 @@ jobs:
   create-release:
     needs: [build-android, build-windows]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -154,7 +134,7 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: c.c v1.0.${{ github.run_number }}
           files: |
-            artifacts/c.c-android/*.apk
-            artifacts/c.c-windows/*.exe
+            artifacts/**/*.apk
+            artifacts/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
