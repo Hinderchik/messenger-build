@@ -1,4 +1,4 @@
-name: Build c.c APK & EXE
+name: Build c.c APK and EXE
 
 on:
   push:
@@ -7,98 +7,66 @@ on:
 
 jobs:
   build-android:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-        
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       
-    - name: Generate keystore
-      run: |
-        keytool -genkey -v -keystore keystore.jks -keyalg RSA -keysize 2048 -validity 10000 \
-          -alias messenger -storepass 123456 -keypass 123456 \
-          -dname "CN=Messenger, OU=Messenger, O=Messenger, L=Moscow, ST=Moscow, C=RU"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
         
-    - name: Clone web app
-      run: |
-        git clone https://github.com/Hinderchik/messenger-app.git webapp
-        mkdir -p www
-        cp -r webapp/* www/
+      - name: Clone web app
+        run: |
+          git clone https://github.com/Hinderchik/messenger-app.git webapp
+          mkdir -p www
+          cp -r webapp/* www/
+          
+      - name: Install Capacitor
+        run: |
+          npm install -g @capacitor/cli
+          npm install @capacitor/core @capacitor/android
+          
+      - name: Init Capacitor
+        run: cap init c.c com.cc.messenger --web-dir=www
         
-    - name: Install Capacitor
-      run: |
-        npm install -g @capacitor/cli
-        npm install @capacitor/core @capacitor/android
+      - name: Remove old android
+        run: rm -rf android || true
         
-    - name: Init Capacitor
-      run: cap init c.c com.cc.messenger --web-dir=www
-      
-    - name: Remove old android if exists
-      run: rm -rf android || true
-      
-    - name: Add Android
-      run: cap add android
-      
-    - name: Create signing config
-      run: |
-        cat > android/keystore.properties << 'EOF'
-        storeFile=../keystore.jks
-        storePassword=123456
-        keyAlias=messenger
-        keyPassword=123456
-        EOF
+      - name: Add Android
+        run: cap add android
         
-    - name: Update build.gradle with signing
-      run: |
-        cat >> android/app/build.gradle << 'EOF'
+      - name: Create icons
+        run: |
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+          
+      - name: Sync Capacitor
+        run: cap sync
         
-        android {
-            signingConfigs {
-                release {
-                    storeFile file(keystoreProperties['storeFile'])
-                    storePassword keystoreProperties['storePassword']
-                    keyAlias keystoreProperties['keyAlias']
-                    keyPassword keystoreProperties['keyPassword']
-                }
-            }
-            buildTypes {
-                release {
-                    signingConfig signingConfigs.release
-                }
-            }
-        }
-        EOF
-        
-    - name: Sync Capacitor
-      run: cap sync
-      
-    - name: Build signed APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleRelease
-        
-    - name: Rename APK
-      run: |
-        cp android/app/build/outputs/apk/release/app-release.apk c.c.apk
-        
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: c.c-android
-        path: c.c.apk
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: c.c-android
+          path: android/app/build/outputs/apk/release/*.apk
 
   build-windows:
     runs-on: windows-latest
@@ -113,23 +81,12 @@ jobs:
       - name: Clone web app
         run: git clone https://github.com/Hinderchik/messenger-app.git webapp
         
-      - name: Create icon.ico
-        run: |
-          curl -o icon.png https://raw.githubusercontent.com/Hinderchik/messenger-app/main/icon.png 2>$null
-          if (Test-Path icon.png) {
-            magick icon.png -define icon:auto-resize=256,128,96,64,48,32,16 icon.ico 2>$null
-          } else {
-            echo "No icon.png found, using default"
-          }
-          
       - name: Create Electron app
         run: |
           mkdir electron-app
           cd electron-app
           npm init -y
           npm install electron electron-builder
-          
-          if (Test-Path ../icon.ico) { Copy-Item ../icon.ico . }
           
           $mainJs = @"
           const { app, BrowserWindow } = require('electron');
@@ -138,7 +95,6 @@ jobs:
               mainWindow = new BrowserWindow({
                   width: 1200,
                   height: 800,
-                  icon: __dirname + '/icon.ico',
                   webPreferences: {
                       nodeIntegration: false,
                       contextIsolation: true
@@ -170,8 +126,7 @@ jobs:
                 "output": "dist"
               },
               "win": {
-                "target": "nsis",
-                "icon": "icon.ico"
+                "target": "nsis"
               }
             }
           }
@@ -192,17 +147,11 @@ jobs:
   create-release:
     needs: [build-android, build-windows]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          
-      - name: List files
-        run: |
-          ls -la artifacts/
-          ls -la artifacts/c.c-android/ || true
-          ls -la artifacts/c.c-windows/ || true
           
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -210,7 +159,7 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: c.c v1.0.${{ github.run_number }}
           files: |
-            artifacts/c.c-android/c.c.apk
+            artifacts/c.c-android/*.apk
             artifacts/c.c-windows/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
