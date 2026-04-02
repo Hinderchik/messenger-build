@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'  # Раз в неделю
+    - cron: '0 0 * * 0'
 
 jobs:
   build-android:
@@ -30,7 +30,7 @@ jobs:
       - name: Clone messenger app
         run: |
           git clone https://github.com/Hinderchik/messenger-app.git app
-          cp -r app/* android/app/src/main/assets/public/ 2>/dev/null || mkdir -p android/app/src/main/assets/public
+          mkdir -p android/app/src/main/assets/public
           cp -r app/* android/app/src/main/assets/public/
           
       - name: Create Capacitor config
@@ -46,12 +46,12 @@ jobs:
           
       - name: Create AndroidManifest
         run: |
+          mkdir -p android/app/src/main
           cat > android/app/src/main/AndroidManifest.xml << 'ANDROID'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.hinderchik.messenger">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -59,8 +59,7 @@ jobs:
         android:usesCleartextTraffic="true">
         <activity
             android:name="com.hinderchik.messenger.MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -93,8 +92,7 @@ ANDROID
           node-version: '18'
           
       - name: Clone messenger app
-        run: |
-          git clone https://github.com/Hinderchik/messenger-app.git app
+        run: git clone https://github.com/Hinderchik/messenger-app.git app
           
       - name: Create Electron app
         run: |
@@ -103,27 +101,9 @@ ANDROID
           npm init -y
           npm install electron electron-builder
           
-          cat > main.js << 'ELECTRON'
-const { app, BrowserWindow } = require('electron');
-let mainWindow;
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true
-        }
-    });
-    mainWindow.loadURL('https://messenger-e8ywossf0-hinderchiks-projects.vercel.app');
-    mainWindow.on('closed', () => { mainWindow = null; });
-}
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-ELECTRON
+          echo "const { app, BrowserWindow } = require('electron'); let mainWindow; function createWindow() { mainWindow = new BrowserWindow({ width: 1200, height: 800, webPreferences: { nodeIntegration: false, contextIsolation: true } }); mainWindow.loadURL('https://messenger-e8ywossf0-hinderchiks-projects.vercel.app'); mainWindow.on('closed', () => { mainWindow = null; }); } app.whenReady().then(createWindow); app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });" > main.js
           
-          cat > package.json << 'PKG'
-{
+          echo '{
   "name": "messenger",
   "version": "1.0.0",
   "main": "main.js",
@@ -135,10 +115,9 @@ ELECTRON
     "appId": "com.hinderchik.messenger",
     "productName": "Messenger",
     "directories": { "output": "dist" },
-    "win": { "target": "nsis", "icon": "icon.ico" }
+    "win": { "target": "nsis" }
   }
-}
-PKG
+}' > package.json
           
       - name: Build EXE
         run: |
