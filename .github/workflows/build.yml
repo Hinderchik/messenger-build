@@ -9,7 +9,7 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout messenger-build (для иконки)
+      - name: Checkout messenger-build
         uses: actions/checkout@v4
         with:
           path: messenger-build
@@ -28,24 +28,12 @@ jobs:
       - name: Install PWABuilder CLI
         run: npm install -g @pwabuilder/cli
         
-      - name: Use icon from messenger-build
+      - name: Copy icon from messenger-build
         run: |
           cd messenger-app
-          # Копируем иконку из messenger-build
-          if [ -f "../messenger-build/icon.png" ]; then
-            cp ../messenger-build/icon.png icon.png
-            echo "✅ Using icon from messenger-build"
-          elif [ -f "../messenger-build/icon.svg" ]; then
-            sudo apt-get install -y imagemagick
-            convert ../messenger-build/icon.svg -resize 512x512 icon.png
-            echo "✅ Converted SVG to PNG"
-          else
-            echo "❌ No icon found in messenger-build! Creating default..."
-            sudo apt-get install -y imagemagick
-            convert -size 512x512 xc:#4F46E5 -gravity center -pointsize 120 -fill white -annotate +0+0 "c.c." -extent 512x512 icon.png
-          fi
+          cp ../messenger-build/icon.png icon.png 2>/dev/null || echo "No icon found"
           
-      - name: Generate manifest.json
+      - name: Create manifest.json
         run: |
           cd messenger-app
           cat > manifest.json << 'EOF'
@@ -56,13 +44,8 @@ jobs:
             "display": "standalone",
             "background_color": "#4F46E5",
             "theme_color": "#4F46E5",
-            "orientation": "portrait",
             "icons": [
-              {
-                "src": "icon.png",
-                "sizes": "512x512",
-                "type": "image/png"
-              }
+              {"src": "icon.png", "sizes": "512x512", "type": "image/png"}
             ]
           }
           EOF
@@ -70,8 +53,9 @@ jobs:
       - name: Build APK
         run: |
           cd messenger-app
-          npx @pwabuilder/cli build --platform android --manifest manifest.json --output dist
-          find . -name "*.apk" -exec cp {} ../c.c.apk \;
+          npx @pwabuilder/cli build
+          
+          find . -type f -name "*.apk" 2>/dev/null | head -1 | xargs -I {} cp {} ../c.c.apk
           
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -82,7 +66,7 @@ jobs:
   build-exe:
     runs-on: windows-latest
     steps:
-      - name: Checkout messenger-build (для иконки)
+      - name: Checkout messenger-build
         uses: actions/checkout@v4
         with:
           path: messenger-build
@@ -104,27 +88,19 @@ jobs:
           mkdir electron-app
           cd electron-app
           
-          # Копируем иконку из messenger-build
-          if [ -f "../messenger-build/icon.png" ]; then
-            cp ../messenger-build/icon.png icon.png
-            echo "✅ Using icon from messenger-build"
-          elif [ -f "../messenger-build/icon.ico" ]; then
-            cp ../messenger-build/icon.ico icon.ico
-            echo "✅ Using ICO from messenger-build"
-          else
-            echo "❌ No icon found, creating default"
-          fi
+          cp ../messenger-build/icon.png icon.png 2>/dev/null || echo "No icon"
           
-          # Конвертируем PNG в ICO если нужно
-          if [ -f "icon.png" ] && [ ! -f "icon.ico" ]; then
+          if [ -f "icon.png" ]; then
             npm install -g png-to-ico
             png-to-ico icon.png > icon.ico
           fi
           
           cat > package.json << 'EOF'
           {
-            "name": "c.c.-messenger",
+            "name": "cc-messenger",
             "version": "1.0.0",
+            "description": "c.c. Messenger",
+            "author": "XunKal1",
             "main": "main.js",
             "scripts": {
               "dist": "electron-builder"
@@ -133,9 +109,15 @@ jobs:
               "appId": "com.cc.messenger",
               "productName": "c.c.",
               "directories": {"output": "dist"},
+              "files": ["**/*"],
               "win": {
                 "target": "nsis",
                 "icon": "icon.ico"
+              },
+              "nsis": {
+                "oneClick": false,
+                "perMachine": true,
+                "allowToChangeInstallationDirectory": true
               }
             },
             "devDependencies": {
@@ -162,11 +144,18 @@ jobs:
           npm install
           
       - name: Build EXE
+        shell: bash
         run: |
           cd electron-app
           npm run dist
-          cd dist
-          find . -name "*.exe" -exec cp {} ../../c.c.exe \;
+          
+          if [ -f "dist/c.c Setup 1.0.0.exe" ]; then
+            cp "dist/c.c Setup 1.0.0.exe" ../c.c.exe
+          elif [ -f "dist/c.c. Setup 1.0.0.exe" ]; then
+            cp "dist/c.c. Setup 1.0.0.exe" ../c.c.exe
+          else
+            find dist -name "*.exe" -exec cp {} ../c.c.exe \;
+          fi
           
       - name: Upload EXE
         uses: actions/upload-artifact@v4
@@ -184,6 +173,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          
+      - name: List files
+        run: |
+          ls -la artifacts/
+          ls -la artifacts/c.c.apk/ || true
+          ls -la artifacts/c.c.exe/ || true
           
       - name: Create Release
         uses: softprops/action-gh-release@v1
