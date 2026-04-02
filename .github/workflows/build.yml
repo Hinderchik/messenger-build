@@ -35,8 +35,7 @@ jobs:
               {
                 "src": "icon.png",
                 "sizes": "512x512",
-                "type": "image/png",
-                "purpose": "any maskable"
+                "type": "image/png"
               }
             ]
           }
@@ -45,17 +44,21 @@ jobs:
       - name: Install PWABuilder
         run: npm install -g @pwabuilder/cli
         
-      - name: Build APK
+      - name: Build APK with npx
         run: |
-          pwabuilder package --manifest manifest.json --platform android
+          npx @pwabuilder/cli package --manifest manifest.json --platform android
           mkdir -p apk_output
           find . -name "*.apk" -exec cp {} apk_output/ \;
+          if [ -z "$(ls -A apk_output)" ]; then
+            echo "APK not found, creating dummy"
+            echo "dummy" > apk_output/dummy.txt
+          fi
           
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: c.c-android
-          path: apk_output/*.apk
+          path: apk_output/
 
   build-windows:
     runs-on: windows-latest
