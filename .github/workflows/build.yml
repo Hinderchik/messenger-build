@@ -1,0 +1,172 @@
+name: Build APK & EXE
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'  # Раз в неделю
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        
+      - name: Clone messenger app
+        run: |
+          git clone https://github.com/Hinderchik/messenger-app.git app
+          cp -r app/* android/app/src/main/assets/public/ 2>/dev/null || mkdir -p android/app/src/main/assets/public
+          cp -r app/* android/app/src/main/assets/public/
+          
+      - name: Create Capacitor config
+        run: |
+          npm install -g @capacitor/core @capacitor/android
+          npx cap init Messenger com.hinderchik.messenger
+          npx cap add android
+          
+      - name: Copy web files
+        run: |
+          mkdir -p android/app/src/main/assets/public
+          cp -r app/* android/app/src/main/assets/public/
+          
+      - name: Create AndroidManifest
+        run: |
+          cat > android/app/src/main/AndroidManifest.xml << 'ANDROID'
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.hinderchik.messenger">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Messenger"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name="com.hinderchik.messenger.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+ANDROID
+          
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: messenger-android
+          path: android/app/build/outputs/apk/release/*.apk
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Clone messenger app
+        run: |
+          git clone https://github.com/Hinderchik/messenger-app.git app
+          
+      - name: Create Electron app
+        run: |
+          mkdir electron-app
+          cd electron-app
+          npm init -y
+          npm install electron electron-builder
+          
+          cat > main.js << 'ELECTRON'
+const { app, BrowserWindow } = require('electron');
+let mainWindow;
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    mainWindow.loadURL('https://messenger-e8ywossf0-hinderchiks-projects.vercel.app');
+    mainWindow.on('closed', () => { mainWindow = null; });
+}
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+ELECTRON
+          
+          cat > package.json << 'PKG'
+{
+  "name": "messenger",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.hinderchik.messenger",
+    "productName": "Messenger",
+    "directories": { "output": "dist" },
+    "win": { "target": "nsis", "icon": "icon.ico" }
+  }
+}
+PKG
+          
+      - name: Build EXE
+        run: |
+          cd electron-app
+          npm run build
+          
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: messenger-windows
+          path: electron-app/dist/*.exe
+
+  create-release:
+    needs: [build-android, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Messenger v1.0.${{ github.run_number }}
+          files: |
+            artifacts/messenger-android/*.apk
+            artifacts/messenger-windows/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
